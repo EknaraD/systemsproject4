@@ -26,54 +26,52 @@ void terminate(int sig) {
         exit(0);
 }
 
-void sendmsg (char *user, char *target, char *msg) {
-	// Create message struct
+void sendmsg(char *user, char *target, char *msg) {
     struct message m;
-    strcpy(m.source, user);
-    strcpy(m.target, target);
-    strcpy(m.msg, msg);
+    memset(&m, 0, sizeof(m));
 
-    // Open server FIFO for writing
+    strncpy(m.source, user, sizeof(m.source)-1);
+    strncpy(m.target, target, sizeof(m.target)-1);
+    strncpy(m.msg, msg, sizeof(m.msg)-1);
+
     int fd = open("serverFIFO", O_WRONLY);
     if (fd < 0) {
-        perror("Error opening serverFIFO");
+        perror("serverFIFO");
         return;
     }
 
-    // Write message
-    if (write(fd, &m, sizeof(struct message)) < 0) {
-        perror("Write to serverFIFO failed");
-    }
-
+    write(fd, &m, sizeof(m));
     close(fd);
 }
 
-void* messageListener(void *arg) {
-	char fifoName[50];
-    strcpy(fifoName, uName);     // FIFO name matches username
 
-    int fd = open(fifoName, O_RDONLY);
+void* messageListener(void *arg) {
+    int fd;
+    struct message m;
+
+    // Open FIFO in blocking mode
+    fd = open(uName, O_RDONLY);
     if (fd < 0) {
-        perror("Could not open user FIFO");
+        perror("open user fifo");
         pthread_exit(0);
     }
 
     while (1) {
-        struct message m;
-        int n = read(fd, &m, sizeof(struct message));
+        ssize_t n = read(fd, &m, sizeof(struct message));
 
-        if (n <= 0) {
-            // End-of-file or blocked read → reopen FIFO
+        if (n == sizeof(struct message)) {
+            printf("Incoming message from %s: %s\n", m.source, m.msg);
+            fflush(stdout);
+        }
+        else if (n == 0) {
+            // FIFO was closed by writer – reopen
             close(fd);
-            fd = open(fifoName, O_RDONLY);
+            fd = open(uName, O_RDONLY);
             continue;
         }
-
-        printf("\nIncoming message from %s: %s\n", m.source, m.msg);
-        fflush(stdout);
     }
 
-	pthread_exit((void*)0);
+    pthread_exit(0);
 }
 
 int isAllowed(const char*cmd) {
@@ -145,7 +143,7 @@ int main(int argc, char **argv) {
 
         sendmsg(uName, target, msg);
         continue;
-		
+
     }
 
 	if (strcmp(cmd,"exit")==0) break;
